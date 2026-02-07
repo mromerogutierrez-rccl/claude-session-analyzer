@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Test output
+*.csv
+*.json
+!package.json
+!tsconfig.json
+
+# Test files
+test*.ts
+coverage/
+
+# Environment
+.env
+
+# Sessions
+sessions/

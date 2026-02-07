@@ -1,0 +1,60 @@
+{
+  "name": "claude-session-analyzer",
+  "version": "1.0.0",
+  "description": "Interactive CLI tool to analyze and export Claude session logs for sprint reporting and AI usage tracking",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "claude-logs": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CLAUDE.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm test && npm run build"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "logs",
+    "analyzer",
+    "cli",
+    "session-logs",
+    "ai-tracking",
+    "sprint-reporting"
+  ],
+  "author": "Miguel Romero",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/claude-session-analyzer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/claude-session-analyzer/issues"
+  },
+  "homepage": "https://github.com/your-username/claude-session-analyzer#readme",
+  "dependencies": {
+    "@inquirer/prompts": "^7.2.0",
+    "chalk": "^5.4.1",
+    "cli-table3": "^0.6.5",
+    "commander": "^12.1.0",
+    "csv-stringify": "^6.5.2",
+    "date-fns": "^4.1.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@vitest/coverage-v8": "^4.0.18",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
+  }
+}
