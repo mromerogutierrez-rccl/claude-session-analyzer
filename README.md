@@ -444,5 +444,5 @@ npm run dev
 ### Testing with Your Own Data
 
 ```bash
-npm run dev -- "/Users/miguel.romero/.claude/projects/-Users-miguel-romero-Workspace-royal-caribbean-rcg-room-selection/sessions-index.json"
+npm run dev -- "/Users/user/.claude/projects/project-name/sessions-index.json"
 ```
