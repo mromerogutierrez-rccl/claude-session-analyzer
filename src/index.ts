@@ -5,7 +5,12 @@ import { input, select, confirm, checkbox } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { format } from 'date-fns';
 import path from 'path';
-import { findAndParseSessions, getUniqueBranches } from './parser.js';
+import {
+  getUniqueBranches,
+  discoverProjects,
+  displayProjectsSummary,
+  loadSessionsFromProjects
+} from './parser.js';
 import {
   filterSessions,
   sortSessionsByDate,
@@ -13,6 +18,7 @@ import {
 } from './analyzer.js';
 import { exportSessions } from './exporters.js';
 import { parseStartOfDay, parseEndOfDay, isValidDateRange, formatDateRange } from './date-utils.js';
+import { validateAndRepairProjects } from './session-index-validator.js';
 import type { SessionEntry, FilterOptions, ExportFormat } from './types.js';
 
 const program = new Command();
@@ -21,14 +27,48 @@ program
   .name('claude-logs')
   .description('Interactive CLI to analyze and export Claude session logs')
   .version('1.0.0')
-  .argument('[pattern]', 'Glob pattern for sessions-index.json files', '*.json')
-  .action(async (pattern: string) => {
+  .argument(
+    '[path]',
+    'Project directory, sessions-index.json file, or glob pattern (default: ~/.claude/projects)',
+    undefined
+  )
+  .option('--validate', 'Validate session indexes before analysis (default: true)', true)
+  .option('--auto-repair', 'Automatically repair indexes without prompting', false)
+  .option('--no-validate', 'Skip validation (faster but may miss sessions)')
+  .action(async (inputPath: string | undefined, options: { validate: boolean; autoRepair: boolean }) => {
     try {
-      console.log(chalk.blue('🔍 Searching for session files...\n'));
+      console.log(chalk.blue('🔍 Discovering session files...\n'));
 
-      // Parse all sessions
-      const allSessions = await findAndParseSessions(pattern);
-      console.log(chalk.green(`✓ Found ${allSessions.length} sessions\n`));
+      // PHASE 1: Discovery
+      const projects = await discoverProjects(inputPath);
+
+      if (projects.length === 0) {
+        console.log(chalk.red('No projects found. Exiting.'));
+        return;
+      }
+
+      console.log(
+        chalk.gray(`Found ${projects.length} project${projects.length > 1 ? 's' : ''}\n`)
+      );
+
+      // Display projects summary
+      displayProjectsSummary(projects);
+
+      // PHASE 2: Validation (if enabled)
+      if (options.validate) {
+        await validateAndRepairProjects(projects, options.autoRepair);
+      }
+
+      // PHASE 3: Load Sessions
+      console.log(chalk.blue('📖 Loading sessions...\n'));
+      const allSessions = await loadSessionsFromProjects(projects);
+
+      if (allSessions.length === 0) {
+        console.log(chalk.red('No sessions found. Exiting.'));
+        return;
+      }
+
+      console.log(chalk.green(`✓ Loaded ${allSessions.length} sessions\n`));
 
       // Sort sessions by date
       const sortedSessions = sortSessionsByDate(allSessions);

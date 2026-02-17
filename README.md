@@ -5,6 +5,7 @@ An interactive CLI tool to analyze and export Claude session logs with filtering
 ## Features
 
 - 🔍 **Parse Claude session logs** from `sessions-index.json` files
+- 🔧 **Auto-repair corrupted indexes** - automatically detects and fixes missing session entries
 - 🎯 **Interactive filtering** by date range, git branches, message count, and text search
 - ✅ **Session selection** - export all or choose specific sessions
 - 📊 **Enhanced metadata** - calculate session duration (created to modified timestamps)
@@ -35,25 +36,182 @@ You can find your Claude's chat session in `~/.claude/projects/<PROYECT_NAME>/se
 
 ### Basic Usage
 
-Run the tool in the directory containing your Claude session files:
+Analyze all sessions across all Claude Code projects:
 
 ```bash
 npm run dev
 ```
 
-By default, it searches for `*.json` files in the current directory.
+By default, the tool scans `~/.claude/projects` and discovers all project directories automatically.
 
-### With Custom Pattern
+### Analyze a Specific Project
 
-Specify a glob pattern to find session files:
+Provide a project directory path:
 
 ```bash
-npm run dev "/Users/miguel.romero/.claude/projects/**/sessions-index.json"
+npm run dev ~/.claude/projects/my-project
 ```
+
+The tool automatically finds the `sessions-index.json` file in the project directory. If it's missing or corrupted, it will offer to repair it.
+
+### Advanced Patterns
+
+**Analyze multiple projects with glob:**
+
+```bash
+npm run dev "~/.claude/projects/work-*"
+```
+
+**Legacy: Direct file path (still supported):**
+
+```bash
+npm run dev "~/.claude/projects/my-project/sessions-index.json"
+```
+
+**Glob pattern for multiple files:**
 
 ```bash
 npm run dev "~/.claude/projects/*/sessions-index.json"
 ```
+
+### CLI Options
+
+The tool supports several command-line options to control validation and repair behavior:
+
+```bash
+npm run dev -- [pattern] [options]
+```
+
+**Options:**
+
+- `--validate` - Validate session indexes before analysis (default: true)
+- `--auto-repair` - Automatically repair indexes without prompting (default: false)
+- `--no-validate` - Skip validation for faster startup (not recommended if you've experienced index issues)
+
+**Examples:**
+
+```bash
+# Auto-repair mode (no prompts, useful for scripts/automation)
+npm run dev -- "~/.claude/projects/*/sessions-index.json" --auto-repair
+
+# Skip validation for faster startup
+npm run dev -- "~/.claude/projects/*/sessions-index.json" --no-validate
+```
+
+## Smart Directory Discovery
+
+The tool intelligently discovers Claude Code projects and session files without requiring you to specify exact paths.
+
+### How Discovery Works
+
+1. **Default Behavior** - Scans `~/.claude/projects` for all project directories
+2. **Single Project** - Accepts a project directory path directly
+3. **Glob Patterns** - Supports wildcards for matching multiple projects
+4. **Legacy Support** - Still accepts direct `sessions-index.json` file paths
+
+### Discovery Examples
+
+**Scan all projects (default):**
+
+```bash
+npm run dev
+# Automatically discovers all projects in ~/.claude/projects
+```
+
+**Scan a specific project:**
+
+```bash
+npm run dev ~/.claude/projects/my-work-project
+# Discovers sessions-index.json in the specified directory
+```
+
+**Scan projects matching a pattern:**
+
+```bash
+npm run dev ~/.claude/projects/client-*
+# Discovers all projects starting with "client-"
+```
+
+**Use tilde expansion:**
+
+```bash
+npm run dev ~/custom-claude-projects
+# Expands ~ to your home directory
+```
+
+### What Gets Discovered
+
+The tool shows you what it found:
+
+```text
+📁 Discovered Projects:
+
+  ✓ project-1 - index found
+  ⚠ project-2 - no index (will validate)
+  ✓ project-3 - index found
+```
+
+- ✓ Green checkmark = Valid `sessions-index.json` found
+- ⚠ Yellow warning = No index or corrupted (will be repaired if validation enabled)
+
+Projects without any session files (`.jsonl` files) are automatically skipped.
+
+## Session Index Validation & Repair
+
+### The Problem
+
+Claude Code has a known bug ([issue #25032](https://github.com/anthropics/claude-code/issues/25032)) where `sessions-index.json` stops being updated while `.jsonl` session files continue to be created. This causes:
+
+- Sessions missing from the index even though `.jsonl` files exist on disk
+- `/resume` command failures with "Session was not found"
+- Incomplete data when analyzing sessions
+
+### Automatic Detection & Repair
+
+This tool automatically detects and repairs corrupted session indexes:
+
+1. **Validation Phase**: Scans for `.jsonl` files not listed in `sessions-index.json`
+2. **Detection**: Identifies orphaned sessions and missing files
+3. **User Prompt**: Asks if you want to repair the index (unless using `--auto-repair`)
+4. **Repair**: Adds missing sessions and removes stale entries
+5. **Backup**: Creates a backup file before making changes (`sessions-index.json.bak-{timestamp}`)
+
+**What gets repaired:**
+
+- ✅ Adds sessions found in `.jsonl` files but missing from index
+- ✅ Removes index entries where `.jsonl` files no longer exist
+- ✅ Rebuilds the entire index if it's missing or corrupted
+- ✅ Preserves all existing valid entries
+
+**Example output:**
+
+```bash
+🔎 Validating session indexes...
+  ⚠️  my-project: 5 sessions not in index
+  ⚠️  my-project: 2 index entries have missing files
+
+? Repair session indexes? › Yes
+
+📝 Repairing indexes...
+  ✓ my-project: +5 added, -2 removed
+  Backups saved as sessions-index.json.bak-{timestamp}
+```
+
+### When to Use Validation
+
+**Always enabled by default** - The tool validates indexes before analysis to ensure you get complete data.
+
+**Skip validation** (`--no-validate`) only when:
+
+- You're certain your indexes are up to date
+- You need faster startup times
+- You're running on a read-only filesystem
+
+**Auto-repair mode** (`--auto-repair`) is useful for:
+
+- Scripts and automation (no manual prompts)
+- CI/CD pipelines
+- Batch processing multiple projects
 
 ### Interactive Workflow
 
@@ -128,7 +286,8 @@ Code file paths and relative paths within the project are preserved to maintain 
 ### Export all sessions with duration data to CSV
 
 ```bash
-npm run dev "~/.claude/projects/*/sessions-index.json"
+npm run dev
+# Discovers all projects automatically
 # Select "No" for all filters
 # Select "Export all filtered sessions"
 # Select "Yes" for enhanced metadata
@@ -207,9 +366,17 @@ This tool is designed specifically for generating sprint reports to track AI too
 
 ### Quick Start: Generate Sprint Report
 
+Simply run without arguments to analyze all projects:
+
 ```bash
-npm run dev "~/.claude/projects/*/sessions-index.json"
+npm run dev
 ```
+
+The tool automatically:
+
+- Discovers all Claude Code projects
+- Validates and repairs any corrupted indexes
+- Loads all sessions from all projects
 
 When prompted:
 

@@ -76,3 +76,66 @@ export interface ExportOptions {
   outputPath: string;
   includeEnhanced: boolean;
 }
+
+/**
+ * Information about a discovered project directory
+ */
+export interface ProjectInfo {
+  /** Path to the project directory */
+  projectDir: string;
+
+  /** Path to sessions-index.json (null if doesn't exist yet) */
+  indexPath: string | null;
+
+  /** Number of sessions found (populated after parsing) */
+  sessionCount?: number;
+}
+
+/**
+ * Result of validating a sessions-index.json file
+ */
+export interface ValidationResult {
+  /** Whether the index is valid and in sync with .jsonl files */
+  isValid: boolean;
+
+  /** Path to the sessions-index.json file (may not exist) */
+  indexPath: string;
+
+  /** Path to the project directory */
+  projectDir: string;
+
+  /** Session IDs found in .jsonl files but not in index (orphaned) */
+  orphanedSessions: string[];
+
+  /** Session IDs in index but .jsonl files are missing */
+  missingFiles: string[];
+
+  /** Total number of .jsonl files found */
+  totalJsonlFiles: number;
+
+  /** Total number of entries in the index */
+  totalIndexEntries: number;
+
+  /** Whether the sessions-index.json file exists */
+  indexExists: boolean;
+}
+
+/**
+ * Result of repairing a sessions-index.json file
+ */
+export interface RepairResult {
+  /** Number of sessions added to the index */
+  sessionsAdded: number;
+
+  /** Number of invalid sessions removed from the index */
+  sessionsRemoved: number;
+
+  /** Path to the backup file created (if any) */
+  backupPath: string | null;
+
+  /** Whether the index was created from scratch */
+  createdFromScratch: boolean;
+
+  /** Path to the repaired/created index file */
+  indexPath: string;
+}
