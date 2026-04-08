@@ -80,7 +80,153 @@ function maskSensitiveInfo(text: string): string {
 }
 
 /**
- * Read a .jsonl file and extract all timestamps
+ * Message count breakdown by interaction type
+ */
+export interface MessageCountBreakdown {
+  userMessageCount: number;
+  assistantMessageCount: number;
+  toolMessageCount: number;
+}
+
+/**
+ * All enhanced data extracted from a single .jsonl file read
+ */
+export interface AllEnhancedData {
+  first: string | null;
+  last: string | null;
+  firstUserMessage: string | null;
+  lastAssistantMessage: string | null;
+  breakdown: MessageCountBreakdown;
+}
+
+/**
+ * Determine if a content block is an IDE artifact (not human-authored)
+ */
+function isIdeArtifact(text: string): boolean {
+  return (
+    text.includes('<ide_opened_file>') ||
+    text.includes('<ide_selection>') ||
+    text.includes('<command-name>')
+  );
+}
+
+/**
+ * Read a .jsonl file in a single pass and extract all enhanced metadata:
+ * - First and last timestamps
+ * - First user message text (masked)
+ * - Last assistant message text (masked)
+ * - Message count breakdown by type
+ *
+ * Returns null if the file cannot be read. Returns zero counts (not null)
+ * for empty files.
+ */
+export async function readAllEnhancedData(filePath: string): Promise<AllEnhancedData | null> {
+  try {
+    if (!existsSync(filePath)) {
+      return null;
+    }
+
+    const content = await readFile(filePath, 'utf-8');
+    const lines = content.split('\n').filter(line => line.trim().length > 0);
+
+    const timestamps: string[] = [];
+    let firstUserMessage: string | null = null;
+    // Track last assistant message by overwriting on each qualifying line (forward pass)
+    let lastAssistantMessage: string | null = null;
+
+    const breakdown: MessageCountBreakdown = {
+      userMessageCount: 0,
+      assistantMessageCount: 0,
+      toolMessageCount: 0,
+    };
+
+    for (const line of lines) {
+      let json: JsonlMessage;
+      try {
+        json = JSON.parse(line);
+      } catch {
+        // Skip malformed lines
+        continue;
+      }
+
+      // Collect timestamp
+      if (json.timestamp) {
+        timestamps.push(json.timestamp);
+      }
+
+      const role = json.message?.role;
+      const contentItems = json.message?.content;
+
+      if (!role || !Array.isArray(contentItems)) {
+        // No recognizable message structure — not counted
+        continue;
+      }
+
+      const hasTextBlock = contentItems.some(
+        item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text)
+      );
+      const hasOnlyNonTextBlocks =
+        contentItems.length > 0 &&
+        contentItems.every(item => item.type !== 'text' || !item.text || item.text.trim().length === 0 || isIdeArtifact(item.text ?? ''));
+
+      if (role === 'assistant') {
+        if (hasTextBlock) {
+          // Assistant message with text (may also have tool_use — text wins)
+          breakdown.assistantMessageCount++;
+
+          // Track for lastAssistantMessage — overwrite on each qualifying line
+          const textParts = contentItems
+            .filter(item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text))
+            .map(item => item.text!.trim());
+          if (textParts.length > 0) {
+            lastAssistantMessage = maskSensitiveInfo(textParts.join('\n\n'));
+          }
+        } else {
+          // Assistant with only tool_use/tool_result — no text
+          breakdown.toolMessageCount++;
+        }
+      } else if (role === 'user') {
+        if (hasTextBlock) {
+          // Genuine human-authored message
+          breakdown.userMessageCount++;
+
+          // Capture first user message
+          if (firstUserMessage === null) {
+            const textParts = contentItems
+              .filter(item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text))
+              .map(item => item.text!.trim());
+            if (textParts.length > 0) {
+              firstUserMessage = maskSensitiveInfo(textParts.join('\n\n'));
+            }
+          }
+        } else {
+          // User entry with only tool_result or IDE artifacts — not human-authored
+          breakdown.toolMessageCount++;
+        }
+      }
+      // Entries with unrecognized roles are not counted (no else branch)
+    }
+
+    // Derive first/last timestamps
+    let first: string | null = null;
+    let last: string | null = null;
+    if (timestamps.length > 0) {
+      const sorted = [...timestamps].sort(
+        (a, b) => new Date(a).getTime() - new Date(b).getTime()
+      );
+      first = sorted[0];
+      last = sorted[sorted.length - 1];
+    }
+
+    return { first, last, firstUserMessage, lastAssistantMessage, breakdown };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read a .jsonl file and extract all timestamps.
+ * @deprecated Use readAllEnhancedData for new callers — this performs a separate file read.
  */
 export async function readJsonlTimestamps(filePath: string): Promise<string[]> {
   try {
@@ -99,9 +245,8 @@ export async function readJsonlTimestamps(filePath: string): Promise<string[]> {
         if (json.timestamp) {
           timestamps.push(json.timestamp);
         }
-      } catch (error) {
+      } catch {
         // Skip malformed lines
-        console.warn(`Warning: Could not parse line in ${filePath}`);
       }
     }
 
@@ -112,164 +257,40 @@ export async function readJsonlTimestamps(filePath: string): Promise<string[]> {
 }
 
 /**
- * Get first and last timestamps from a .jsonl file
+ * Get first and last timestamps from a .jsonl file.
+ * Thin wrapper around readAllEnhancedData for backward compatibility.
  */
 export async function getFirstAndLastTimestamp(
   filePath: string
 ): Promise<{ first: string | null; last: string | null }> {
-  try {
-    const timestamps = await readJsonlTimestamps(filePath);
-
-    if (timestamps.length === 0) {
-      return { first: null, last: null };
-    }
-
-    // Sort timestamps to ensure we get the actual first and last
-    // even if the file is not in chronological order
-    const sortedTimestamps = timestamps.sort((a, b) => {
-      return new Date(a).getTime() - new Date(b).getTime();
-    });
-
-    return {
-      first: sortedTimestamps[0],
-      last: sortedTimestamps[sortedTimestamps.length - 1],
-    };
-  } catch (error) {
-    console.warn(`Warning: Could not get timestamps from ${filePath}:`, error);
+  const data = await readAllEnhancedData(filePath);
+  if (!data) {
     return { first: null, last: null };
   }
+  return { first: data.first, last: data.last };
 }
 
 /**
- * Extract the first user message from a .jsonl file
- * Returns the concatenated text content with sensitive info masked
+ * Extract the first user message from a .jsonl file.
+ * Returns the concatenated text content with sensitive info masked.
+ * Thin wrapper around readAllEnhancedData for backward compatibility.
  */
 export async function getFirstUserMessage(
   filePath: string
 ): Promise<string | null> {
-  try {
-    if (!existsSync(filePath)) {
-      return null;
-    }
-
-    const content = await readFile(filePath, 'utf-8');
-    const lines = content.split('\n').filter(line => line.trim().length > 0);
-
-    for (const line of lines) {
-      try {
-        const json: JsonlMessage = JSON.parse(line);
-
-        // Check if this is a user message
-        if (
-          json.type === 'user' &&
-          json.message?.role === 'user' &&
-          json.message?.content &&
-          Array.isArray(json.message.content)
-        ) {
-          // Extract and concatenate all text content
-          const textParts: string[] = [];
-
-          for (const contentItem of json.message.content) {
-            if (contentItem.type === 'text' && contentItem.text) {
-              // Skip system messages and IDE artifacts
-              if (
-                !contentItem.text.includes('<ide_opened_file>') &&
-                !contentItem.text.includes('<ide_selection>') &&
-                !contentItem.text.includes('<command-name>') &&
-                contentItem.text.trim().length > 0
-              ) {
-                textParts.push(contentItem.text.trim());
-              }
-            }
-          }
-
-          if (textParts.length > 0) {
-            const userMessage = textParts.join('\n\n');
-            // Mask sensitive information
-            return maskSensitiveInfo(userMessage);
-          }
-        }
-      } catch (error) {
-        // Skip malformed lines
-        continue;
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.warn(`Warning: Could not extract first user message from ${filePath}`);
-    return null;
-  }
+  const data = await readAllEnhancedData(filePath);
+  return data?.firstUserMessage ?? null;
 }
 
 /**
- * Extract the last assistant message from a .jsonl file
- * Excludes tool use blocks and system messages
- * Returns the concatenated text content with sensitive info masked
+ * Extract the last assistant message from a .jsonl file.
+ * Excludes tool use blocks and system messages.
+ * Returns the concatenated text content with sensitive info masked.
+ * Thin wrapper around readAllEnhancedData for backward compatibility.
  */
 export async function getLastAssistantMessage(
   filePath: string
 ): Promise<string | null> {
-  try {
-    if (!existsSync(filePath)) {
-      return null;
-    }
-
-    const content = await readFile(filePath, 'utf-8');
-    const lines = content.split('\n').filter(line => line.trim().length > 0);
-
-    // Iterate backward through lines to find the last assistant message
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const json: JsonlMessage = JSON.parse(lines[i]);
-
-        // Check if this is an assistant message
-        if (
-          json.type === 'assistant' &&
-          json.message?.role === 'assistant' &&
-          json.message?.content &&
-          Array.isArray(json.message.content)
-        ) {
-          // Extract and concatenate text content, excluding tool use
-          const textParts: string[] = [];
-
-          for (const contentItem of json.message.content) {
-            // Skip tool_use blocks (as per user preference)
-            if (contentItem.type === 'tool_use') {
-              continue;
-            }
-
-            // Only process text blocks
-            if (contentItem.type === 'text' && contentItem.text) {
-              // Skip system messages and IDE artifacts
-              if (
-                !contentItem.text.includes('<ide_opened_file>') &&
-                !contentItem.text.includes('<ide_selection>') &&
-                !contentItem.text.includes('<command-name>') &&
-                contentItem.text.trim().length > 0
-              ) {
-                textParts.push(contentItem.text.trim());
-              }
-            }
-          }
-
-          // Return if we found valid text content
-          if (textParts.length > 0) {
-            const assistantMessage = textParts.join('\n\n');
-            // Mask sensitive information
-            return maskSensitiveInfo(assistantMessage);
-          }
-          // If this assistant message had no valid text, continue searching backward
-        }
-      } catch (error) {
-        // Skip malformed lines
-        continue;
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.warn(`Warning: Could not extract last assistant message from ${filePath}`);
-    return null;
-  }
+  const data = await readAllEnhancedData(filePath);
+  return data?.lastAssistantMessage ?? null;
 }

@@ -30,3 +30,7 @@ coverage/
 
 # Sessions
 sessions/
+.claude
+.specify
+specs
+artifacts

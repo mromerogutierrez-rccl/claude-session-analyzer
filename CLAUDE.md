@@ -254,3 +254,10 @@ Edit the `SENSITIVE_PATTERNS` array in [src/jsonl-reader.ts](src/jsonl-reader.ts
 
 - `pattern`: RegExp to match sensitive data
 - `replacement`: String or function to replace matches
+
+## Active Technologies
+- TypeScript (ES2022 modules); `.js` extensions on all imports + Vitest (testing), csv-stringify (CSV export) — no new dependencies needed (001-message-count-breakdown)
+- Filesystem (`.jsonl` session files); no index file changes (001-message-count-breakdown)
+
+## Recent Changes
+- 001-message-count-breakdown: Added TypeScript (ES2022 modules); `.js` extensions on all imports + Vitest (testing), csv-stringify (CSV export) — no new dependencies needed

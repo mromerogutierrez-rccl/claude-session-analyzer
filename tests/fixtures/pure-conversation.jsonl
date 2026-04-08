@@ -1,0 +1,4 @@
+{"timestamp":"2026-04-01T09:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"What is TypeScript?"}]}}
+{"timestamp":"2026-04-01T09:01:00.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"TypeScript is a typed superset of JavaScript that compiles to plain JavaScript."}]}}
+{"timestamp":"2026-04-01T09:02:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"How do I compile a TypeScript file?"}]}}
+{"timestamp":"2026-04-01T09:03:00.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Use the tsc command: tsc yourfile.ts"}]}}

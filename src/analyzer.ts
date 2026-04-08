@@ -1,6 +1,6 @@
 import { formatDistanceStrict, differenceInMilliseconds } from 'date-fns';
 import type { SessionEntry, EnhancedSession, FilterOptions } from './types.js';
-import { getFirstAndLastTimestamp, getFirstUserMessage, getLastAssistantMessage } from './jsonl-reader.js';
+import { readAllEnhancedData } from './jsonl-reader.js';
 
 /**
  * Calculate duration between created and modified timestamps
@@ -26,19 +26,19 @@ export function calculateDuration(created: string, modified: string): {
 }
 
 /**
- * Enhance session with calculated metadata using actual .jsonl file timestamps
+ * Enhance session with calculated metadata using actual .jsonl file.
+ * Performs a single file read to extract all enhanced metadata simultaneously.
  */
 export async function enhanceSession(session: SessionEntry): Promise<EnhancedSession> {
-  // Try to get accurate timestamps from the .jsonl file
-  const { first, last } = await getFirstAndLastTimestamp(session.fullPath);
+  // Single file read — extracts all enhanced metadata in one pass
+  const data = await readAllEnhancedData(session.fullPath);
 
-  // Try to get the first user message
-  const firstUserMessage = await getFirstUserMessage(session.fullPath);
+  const first = data?.first ?? null;
+  const last = data?.last ?? null;
+  const firstUserMessage = data?.firstUserMessage ?? null;
+  const lastAssistantMessage = data?.lastAssistantMessage ?? null;
 
-  // Try to get the last assistant message
-  const lastAssistantMessage = await getLastAssistantMessage(session.fullPath);
-
-  // Use actual timestamps if available, otherwise fall back to index metadata
+  // Use accurate timestamps if available, otherwise fall back to index metadata
   const createdTimestamp = first || session.created;
   const modifiedTimestamp = last || session.modified;
 
@@ -47,26 +47,31 @@ export async function enhanceSession(session: SessionEntry): Promise<EnhancedSes
     modifiedTimestamp
   );
 
-  const enhanced: EnhancedSession = {
-    ...session,
-    duration: milliseconds,
-    durationFormatted: formatted,
-  };
+  // Spread SessionEntry fields first (includes messageCount), then add breakdown
+  // fields before duration. This insertion order controls CSV column position:
+  // breakdown columns appear immediately after messageCount in the output.
+  const enhanced: EnhancedSession = { ...session };
 
-  // Include accurate timestamps if they were found in the .jsonl file
+  // Conditionally assign breakdown fields — absent (not null/0) when data unavailable
+  if (data !== null) {
+    enhanced.userMessageCount = data.breakdown.userMessageCount;
+    enhanced.assistantMessageCount = data.breakdown.assistantMessageCount;
+    enhanced.toolMessageCount = data.breakdown.toolMessageCount;
+  }
+
+  // Enhanced timestamp and message fields come after breakdown in insertion order
+  enhanced.duration = milliseconds;
+  enhanced.durationFormatted = formatted;
+
   if (first) {
     enhanced.accurateFirstTimestamp = first;
   }
   if (last) {
     enhanced.accurateLastTimestamp = last;
   }
-
-  // Include first user message if found
   if (firstUserMessage) {
     enhanced.firstUserMessage = firstUserMessage;
   }
-
-  // Include last assistant message if found
   if (lastAssistantMessage) {
     enhanced.lastAssistantMessage = lastAssistantMessage;
   }

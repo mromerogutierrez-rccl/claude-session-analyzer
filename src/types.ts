@@ -33,6 +33,9 @@ export interface EnhancedSession extends SessionEntry {
   accurateLastTimestamp?: string; // Actual last message timestamp from .jsonl file
   firstUserMessage?: string; // First user message text (with sensitive info masked)
   lastAssistantMessage?: string; // Last assistant message text (with sensitive info masked, excluding tool use)
+  userMessageCount?: number; // Count of genuine human-authored messages (absent when enhancement skipped)
+  assistantMessageCount?: number; // Count of assistant text-response messages (absent when enhancement skipped)
+  toolMessageCount?: number; // Count of tool/internal messages — tool_use, tool_result, MCP (absent when enhancement skipped)
 }
 
 /**

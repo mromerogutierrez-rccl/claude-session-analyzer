@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, sortSessionsByDate } from '../../src/analyzer.js';
+import { filterSessions, sortSessionsByDate, enhanceSession } from '../../src/analyzer.js';
 import type { SessionEntry, FilterOptions } from '../../src/types.js';
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const FIXTURES = resolve(__dirname, '../fixtures');
 
 // Helper function to create mock sessions
 function createMockSession(overrides: Partial<SessionEntry>): SessionEntry {
@@ -344,6 +351,56 @@ describe('filterSessions - Date Range Filtering', () => {
       expect(result).toHaveLength(1);
       expect(result[0].sessionId).toBe('s1');
     });
+  });
+});
+
+describe('enhanceSession - message count breakdown', () => {
+  function createSessionWithPath(filePath: string): SessionEntry {
+    return {
+      sessionId: 'test-session',
+      fullPath: filePath,
+      fileMtime: Date.now(),
+      firstPrompt: 'Test prompt',
+      summary: 'Test summary',
+      messageCount: 4,
+      created: '2026-04-01T09:00:00.000Z',
+      modified: '2026-04-01T09:03:00.000Z',
+      gitBranch: 'main',
+      projectPath: '/project',
+      isSidechain: false,
+    };
+  }
+
+  it('TA1: breakdown fields are populated when readAllEnhancedData succeeds', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const enhanced = await enhanceSession(session);
+
+    expect(enhanced.userMessageCount).toBe(2);
+    expect(enhanced.assistantMessageCount).toBe(2);
+    expect(enhanced.toolMessageCount).toBe(0);
+  });
+
+  it('TA2: breakdown fields are absent (not null/0) when file is unreadable', async () => {
+    const session = createSessionWithPath('/nonexistent/path/session.jsonl');
+    const enhanced = await enhanceSession(session);
+
+    // Fields must be completely absent — not null, not 0
+    expect('userMessageCount' in enhanced).toBe(false);
+    expect('assistantMessageCount' in enhanced).toBe(false);
+    expect('toolMessageCount' in enhanced).toBe(false);
+  });
+
+  it('TA3: breakdown fields appear before duration in property order (CSV column contract)', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const enhanced = await enhanceSession(session);
+
+    const keys = Object.keys(enhanced);
+    const userIdx = keys.indexOf('userMessageCount');
+    const durationIdx = keys.indexOf('duration');
+
+    expect(userIdx).toBeGreaterThan(-1); // field must exist
+    expect(durationIdx).toBeGreaterThan(-1); // field must exist
+    expect(userIdx).toBeLessThan(durationIdx); // breakdown before duration
   });
 });
 
