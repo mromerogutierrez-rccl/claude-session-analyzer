@@ -258,6 +258,9 @@ Edit the `SENSITIVE_PATTERNS` array in [src/jsonl-reader.ts](src/jsonl-reader.ts
 ## Active Technologies
 - TypeScript (ES2022 modules); `.js` extensions on all imports + Vitest (testing), csv-stringify (CSV export) — no new dependencies needed (001-message-count-breakdown)
 - Filesystem (`.jsonl` session files); no index file changes (001-message-count-breakdown)
+- TypeScript (ES2022 modules) — all imports use `.js` extensions + date-fns (`formatDistanceStrict`), commander (CLI flag), chalk (terminal output) (002-smart-duration-filter)
+- `.jsonl` session files — read-only during enhancement pass (002-smart-duration-filter)
 
 ## Recent Changes
+- 002-smart-duration-filter: Added `activeDuration` and `activeDurationFormatted` fields to `EnhancedSession` (enhancement-only, absent when skipped). Added `calculateActiveDuration()` in `src/analyzer.ts` that sums message-to-message intervals below the idle gap threshold (default 30 min). Added `--gap-threshold <minutes>` CLI flag. Added `timestamps: string[]` to `AllEnhancedData` return value from `readAllEnhancedData`. CSV columns appear immediately after `durationFormatted`.
 - 001-message-count-breakdown: Added TypeScript (ES2022 modules); `.js` extensions on all imports + Vitest (testing), csv-stringify (CSV export) — no new dependencies needed

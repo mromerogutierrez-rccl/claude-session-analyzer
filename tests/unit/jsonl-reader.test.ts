@@ -110,6 +110,49 @@ describe('readAllEnhancedData - message count classification', () => {
   });
 });
 
+describe('readAllEnhancedData - timestamps array (TR1-TR5)', () => {
+  it('TR1: timestamps field is present on return value', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect('timestamps' in result!).toBe(true);
+  });
+
+  it('TR2: timestamps length matches message count with valid timestamps', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    // pure-conversation.jsonl has 4 lines, all with timestamps
+    expect(result!.timestamps).toHaveLength(4);
+  });
+
+  it('TR3: timestamps array is sorted ascending', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'gapped-session.jsonl'));
+
+    expect(result).not.toBeNull();
+    const ts = result!.timestamps;
+    for (let i = 1; i < ts.length; i++) {
+      expect(new Date(ts[i]).getTime()).toBeGreaterThanOrEqual(new Date(ts[i - 1]).getTime());
+    }
+  });
+
+  it('TR4: empty file returns timestamps: [] (not null)', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'empty.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect(Array.isArray(result!.timestamps)).toBe(true);
+    expect(result!.timestamps).toHaveLength(0);
+  });
+
+  it('TR5: first and last are consistent with timestamps[0] and timestamps[N-1]', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect(result!.first).toBe(result!.timestamps[0]);
+    expect(result!.last).toBe(result!.timestamps[result!.timestamps.length - 1]);
+  });
+});
+
 describe('readAllEnhancedData - timestamps and messages', () => {
   it('returns first and last timestamps from pure conversation', async () => {
     const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));

@@ -1,0 +1,4 @@
+{"timestamp":"2026-04-01T09:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Start work"}]}}
+{"timestamp":"2026-04-01T09:05:00.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Ready to help"}]}}
+{"timestamp":"2026-04-02T09:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Resume from yesterday"}]}}
+{"timestamp":"2026-04-02T09:10:00.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Continuing"}]}}

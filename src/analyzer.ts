@@ -3,6 +3,54 @@ import type { SessionEntry, EnhancedSession, FilterOptions } from './types.js';
 import { readAllEnhancedData } from './jsonl-reader.js';
 
 /**
+ * Default idle gap threshold: 30 minutes in milliseconds.
+ * Any consecutive message interval >= this value is treated as an idle gap
+ * and excluded from activeDuration.
+ */
+export const DEFAULT_GAP_THRESHOLD_MS = 30 * 60 * 1_000;
+
+/**
+ * Result of calculateActiveDuration
+ */
+export interface ActiveDurationResult {
+  activeMs: number;
+  gapCount: number;
+  longestGapMs: number;
+}
+
+/**
+ * Calculate active duration from a sorted list of message timestamps.
+ * Sums only consecutive intervals strictly shorter than gapThresholdMs.
+ * Intervals equal to or longer than gapThresholdMs are treated as idle gaps.
+ */
+export function calculateActiveDuration(
+  timestamps: string[],
+  gapThresholdMs: number
+): ActiveDurationResult {
+  if (timestamps.length <= 1) {
+    return { activeMs: 0, gapCount: 0, longestGapMs: 0 };
+  }
+
+  let activeMs = 0;
+  let gapCount = 0;
+  let longestGapMs = 0;
+
+  for (let i = 1; i < timestamps.length; i++) {
+    const intervalMs =
+      new Date(timestamps[i]).getTime() - new Date(timestamps[i - 1]).getTime();
+
+    if (intervalMs < gapThresholdMs) {
+      activeMs += intervalMs;
+    } else {
+      gapCount++;
+      if (intervalMs > longestGapMs) longestGapMs = intervalMs;
+    }
+  }
+
+  return { activeMs, gapCount, longestGapMs };
+}
+
+/**
  * Calculate duration between created and modified timestamps
  */
 export function calculateDuration(created: string, modified: string): {
@@ -29,7 +77,10 @@ export function calculateDuration(created: string, modified: string): {
  * Enhance session with calculated metadata using actual .jsonl file.
  * Performs a single file read to extract all enhanced metadata simultaneously.
  */
-export async function enhanceSession(session: SessionEntry): Promise<EnhancedSession> {
+export async function enhanceSession(
+  session: SessionEntry,
+  gapThresholdMs: number = DEFAULT_GAP_THRESHOLD_MS
+): Promise<EnhancedSession> {
   // Single file read — extracts all enhanced metadata in one pass
   const data = await readAllEnhancedData(session.fullPath);
 
@@ -63,6 +114,17 @@ export async function enhanceSession(session: SessionEntry): Promise<EnhancedSes
   enhanced.duration = milliseconds;
   enhanced.durationFormatted = formatted;
 
+  // Active duration: sum of intervals below gapThresholdMs. Absent when data unavailable.
+  // Insertion here (after durationFormatted) controls CSV column position.
+  if (data !== null) {
+    const { activeMs } = calculateActiveDuration(data.timestamps, gapThresholdMs);
+    enhanced.activeDuration = activeMs;
+    enhanced.activeDurationFormatted =
+      activeMs === 0
+        ? '0 seconds'
+        : formatDistanceStrict(new Date(0), new Date(activeMs), { addSuffix: false });
+  }
+
   if (first) {
     enhanced.accurateFirstTimestamp = first;
   }
@@ -83,10 +145,10 @@ export async function enhanceSession(session: SessionEntry): Promise<EnhancedSes
  * Enhance multiple sessions with accurate timestamps from .jsonl files
  */
 export async function enhanceSessions(
-  sessions: SessionEntry[]
+  sessions: SessionEntry[],
+  gapThresholdMs: number = DEFAULT_GAP_THRESHOLD_MS
 ): Promise<EnhancedSession[]> {
-  const enhanced = await Promise.all(sessions.map(enhanceSession));
-  return enhanced;
+  return Promise.all(sessions.map(session => enhanceSession(session, gapThresholdMs)));
 }
 
 /**

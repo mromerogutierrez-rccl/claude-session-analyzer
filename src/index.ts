@@ -19,7 +19,7 @@ import {
 import { exportSessions } from './exporters.js';
 import { parseStartOfDay, parseEndOfDay, isValidDateRange, formatDateRange } from './date-utils.js';
 import { validateAndRepairProjects } from './session-index-validator.js';
-import type { SessionEntry, FilterOptions, ExportFormat } from './types.js';
+import type { SessionEntry, FilterOptions, ExportFormat, EnhancedSession } from './types.js';
 
 const program = new Command();
 
@@ -35,7 +35,23 @@ program
   .option('--validate', 'Validate session indexes before analysis (default: true)', true)
   .option('--auto-repair', 'Automatically repair indexes without prompting', false)
   .option('--no-validate', 'Skip validation (faster but may miss sessions)')
-  .action(async (inputPath: string | undefined, options: { validate: boolean; autoRepair: boolean }) => {
+  .option('--gap-threshold <minutes>', 'Idle gap threshold in minutes for active duration calculation (default: 30)', '30')
+  .action(async (inputPath: string | undefined, options: { validate: boolean; autoRepair: boolean; gapThreshold: string }) => {
+    // Validate --gap-threshold before any async I/O
+    // String comparison catches decimals: parseInt('1.5') === 1 but String(1) !== '1.5'
+    const parsedThreshold = parseInt(options.gapThreshold, 10);
+    if (
+      !Number.isInteger(parsedThreshold) ||
+      parsedThreshold <= 0 ||
+      String(parsedThreshold) !== options.gapThreshold.trim()
+    ) {
+      console.error(
+        chalk.red(`Error: --gap-threshold must be a positive integer (minutes). Received: "${options.gapThreshold}"`)
+      );
+      process.exit(1);
+    }
+    const gapThresholdMs = parsedThreshold * 60 * 1_000;
+
     try {
       console.log(chalk.blue('🔍 Discovering session files...\n'));
 
@@ -105,7 +121,7 @@ program
       let sessionsToExport;
       if (includeEnhanced) {
         console.log(chalk.blue('\n⏱️  Calculating accurate durations from .jsonl files...\n'));
-        sessionsToExport = await enhanceSessions(selectedSessions);
+        sessionsToExport = await enhanceSessions(selectedSessions, gapThresholdMs);
       } else {
         sessionsToExport = selectedSessions;
       }
@@ -142,6 +158,29 @@ program
       );
       console.log(chalk.gray(`  Format: ${exportFormat.toUpperCase()}`));
       console.log(chalk.gray(`  Enhanced metadata: ${includeEnhanced ? 'Yes' : 'No'}`));
+
+      // Show gap threshold line only when explicitly passed by the user
+      if (includeEnhanced && options.gapThreshold !== '30') {
+        console.log(chalk.gray(`  Gap threshold: ${parsedThreshold} min`));
+      }
+
+      // Show note when at least one session had idle gaps removed
+      if (includeEnhanced) {
+        const enhancedExported = sessionsToExport as EnhancedSession[];
+        const sessionsWithGaps = enhancedExported.filter(
+          s =>
+            s.activeDuration !== undefined &&
+            s.duration !== undefined &&
+            s.activeDuration < s.duration
+        );
+        if (sessionsWithGaps.length > 0) {
+          console.log(
+            chalk.gray(
+              `  Note: ${sessionsWithGaps.length} session(s) had idle gaps removed. activeDuration < duration for those sessions.`
+            )
+          );
+        }
+      }
     } catch (error) {
       console.error(chalk.red('\n❌ Error:'), error);
       process.exit(1);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, sortSessionsByDate, enhanceSession } from '../../src/analyzer.js';
+import { filterSessions, sortSessionsByDate, enhanceSession, calculateActiveDuration, DEFAULT_GAP_THRESHOLD_MS } from '../../src/analyzer.js';
 import type { SessionEntry, FilterOptions } from '../../src/types.js';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -401,6 +401,169 @@ describe('enhanceSession - message count breakdown', () => {
     expect(userIdx).toBeGreaterThan(-1); // field must exist
     expect(durationIdx).toBeGreaterThan(-1); // field must exist
     expect(userIdx).toBeLessThan(durationIdx); // breakdown before duration
+  });
+});
+
+describe('calculateActiveDuration (CA1-CA7)', () => {
+  const THRESHOLD_30M = DEFAULT_GAP_THRESHOLD_MS; // 1_800_000ms
+
+  it('CA1: all intervals below threshold → activeMs equals total duration, gapCount is 0', () => {
+    const timestamps = [
+      '2026-01-01T09:00:00.000Z',
+      '2026-01-01T09:05:00.000Z',
+      '2026-01-01T09:10:00.000Z',
+    ];
+    const result = calculateActiveDuration(timestamps, THRESHOLD_30M);
+
+    // 5min + 5min = 600,000ms
+    expect(result.activeMs).toBe(600_000);
+    expect(result.gapCount).toBe(0);
+  });
+
+  it('CA2: one overnight gap (gapped fixture timestamps) → only active intervals summed', () => {
+    const timestamps = [
+      '2026-04-01T09:00:00.000Z',
+      '2026-04-01T09:05:00.000Z',
+      '2026-04-02T09:00:00.000Z',
+      '2026-04-02T09:10:00.000Z',
+    ];
+    const result = calculateActiveDuration(timestamps, THRESHOLD_30M);
+
+    // 5min (300,000ms) + 10min (600,000ms) = 900,000ms; overnight gap excluded
+    expect(result.activeMs).toBe(900_000);
+    expect(result.gapCount).toBe(1);
+  });
+
+  it('CA3: multiple gaps → gapCount matches, only non-gap intervals summed', () => {
+    const timestamps = [
+      '2026-01-01T09:00:00.000Z',
+      '2026-01-01T09:02:00.000Z', // 2min gap → included
+      '2026-01-01T12:00:00.000Z', // ~3h58min → excluded
+      '2026-01-01T12:01:00.000Z', // 1min → included
+      '2026-01-02T08:00:00.000Z', // ~19h59min → excluded
+      '2026-01-02T08:02:00.000Z', // 2min → included
+      '2026-01-03T10:00:00.000Z', // ~1d2h → excluded
+      '2026-01-03T10:01:00.000Z', // 1min → included
+    ];
+    const result = calculateActiveDuration(timestamps, THRESHOLD_30M);
+
+    // 2+1+2+1 = 6min = 360,000ms; 3 gaps excluded
+    expect(result.gapCount).toBe(3);
+    expect(result.activeMs).toBe(360_000);
+  });
+
+  it('CA4: single-message array (length 1) → activeMs is 0, gapCount is 0, longestGapMs is 0', () => {
+    const result = calculateActiveDuration(['2026-01-01T09:00:00.000Z'], THRESHOLD_30M);
+
+    expect(result.activeMs).toBe(0);
+    expect(result.gapCount).toBe(0);
+    expect(result.longestGapMs).toBe(0);
+  });
+
+  it('CA5: empty array (length 0) → activeMs is 0, gapCount is 0, longestGapMs is 0', () => {
+    const result = calculateActiveDuration([], THRESHOLD_30M);
+
+    expect(result.activeMs).toBe(0);
+    expect(result.gapCount).toBe(0);
+    expect(result.longestGapMs).toBe(0);
+  });
+
+  it('CA6: custom 24h threshold → overnight gap (23h55m) is included → gapCount is 0', () => {
+    const timestamps = [
+      '2026-04-01T09:00:00.000Z',
+      '2026-04-01T09:05:00.000Z',
+      '2026-04-02T09:00:00.000Z',
+      '2026-04-02T09:10:00.000Z',
+    ];
+    const threshold24h = 24 * 60 * 60 * 1_000;
+    const result = calculateActiveDuration(timestamps, threshold24h);
+
+    // All intervals below 24h threshold → all included
+    expect(result.gapCount).toBe(0);
+    // 5min + 23h55min + 10min = 300,000 + 86,100,000 + 600,000 = 87,000,000ms
+    expect(result.activeMs).toBe(87_000_000);
+  });
+
+  it('CA7: interval exactly equal to threshold → excluded (gapCount is 1)', () => {
+    const timestamps = [
+      '2026-01-01T09:00:00.000Z',
+      '2026-01-01T09:30:00.000Z', // exactly 30min = threshold → excluded
+      '2026-01-01T09:31:00.000Z', // 1min → included
+    ];
+    const result = calculateActiveDuration(timestamps, THRESHOLD_30M);
+
+    expect(result.gapCount).toBe(1);
+    expect(result.activeMs).toBe(60_000); // only 1min interval included
+  });
+});
+
+describe('enhanceSession - active duration (TA4-TA8)', () => {
+  function createSessionWithPath(filePath: string): SessionEntry {
+    return {
+      sessionId: 'test-session',
+      fullPath: filePath,
+      fileMtime: Date.now(),
+      firstPrompt: 'Test prompt',
+      summary: 'Test summary',
+      messageCount: 4,
+      created: '2026-04-01T09:00:00.000Z',
+      modified: '2026-04-02T09:10:00.000Z',
+      gitBranch: 'main',
+      projectPath: '/project',
+      isSidechain: false,
+    };
+  }
+
+  it('TA4: readable file → activeDuration present and is a number', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const enhanced = await enhanceSession(session);
+
+    expect('activeDuration' in enhanced).toBe(true);
+    expect(typeof enhanced.activeDuration).toBe('number');
+    expect('activeDurationFormatted' in enhanced).toBe(true);
+    expect(typeof enhanced.activeDurationFormatted).toBe('string');
+  });
+
+  it('TA5: unreadable file → activeDuration absent from returned object', async () => {
+    const session = createSessionWithPath('/nonexistent/path/session.jsonl');
+    const enhanced = await enhanceSession(session);
+
+    expect('activeDuration' in enhanced).toBe(false);
+    expect('activeDurationFormatted' in enhanced).toBe(false);
+  });
+
+  it('TA6: empty file (0 timestamps) → activeDuration is 0 and activeDurationFormatted is "0 seconds"', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'empty.jsonl'));
+    const enhanced = await enhanceSession(session);
+
+    expect(enhanced.activeDuration).toBe(0);
+    expect(enhanced.activeDurationFormatted).toBe('0 seconds');
+  });
+
+  it('TA7: activeDuration appears after durationFormatted and before accurateFirstTimestamp in CSV column order', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const enhanced = await enhanceSession(session);
+
+    const keys = Object.keys(enhanced);
+    const durationFormattedIdx = keys.indexOf('durationFormatted');
+    const activeDurationIdx = keys.indexOf('activeDuration');
+    const accurateFirstTimestampIdx = keys.indexOf('accurateFirstTimestamp');
+
+    expect(activeDurationIdx).toBeGreaterThan(durationFormattedIdx);
+    expect(activeDurationIdx).toBeLessThan(accurateFirstTimestampIdx);
+  });
+
+  it('TA8: custom gapThresholdMs changes activeDuration calculation', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'gapped-session.jsonl'));
+
+    // With 30-min threshold: overnight gap excluded → activeMs = 900,000ms
+    const enhanced30m = await enhanceSession(session, DEFAULT_GAP_THRESHOLD_MS);
+    expect(enhanced30m.activeDuration).toBe(900_000);
+
+    // With huge threshold: no gaps excluded → activeMs = full span
+    const enhancedHuge = await enhanceSession(session, 999_999_999);
+    // 5min + 23h55min + 10min = 87,000,000ms
+    expect(enhancedHuge.activeDuration).toBe(87_000_000);
   });
 });
 

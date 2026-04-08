@@ -29,6 +29,8 @@ export interface SessionsIndex {
 export interface EnhancedSession extends SessionEntry {
   duration?: number; // Duration in milliseconds (calculated from first to last message)
   durationFormatted?: string; // Human-readable duration (e.g., "2 hours", "45 minutes")
+  activeDuration?: number; // Sum of message-to-message intervals below the gap threshold (ms). 0 for single-message sessions. Absent when enhancement skipped.
+  activeDurationFormatted?: string; // Human-readable active duration. "0 seconds" for single-message sessions. Absent when enhancement skipped.
   accurateFirstTimestamp?: string; // Actual first message timestamp from .jsonl file
   accurateLastTimestamp?: string; // Actual last message timestamp from .jsonl file
   firstUserMessage?: string; // First user message text (with sensitive info masked)

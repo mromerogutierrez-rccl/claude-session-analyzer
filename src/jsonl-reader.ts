@@ -97,6 +97,7 @@ export interface AllEnhancedData {
   firstUserMessage: string | null;
   lastAssistantMessage: string | null;
   breakdown: MessageCountBreakdown;
+  timestamps: string[]; // Full sorted list of all message timestamps. Empty array when none found. Never null.
 }
 
 /**
@@ -207,18 +208,14 @@ export async function readAllEnhancedData(filePath: string): Promise<AllEnhanced
       // Entries with unrecognized roles are not counted (no else branch)
     }
 
-    // Derive first/last timestamps
-    let first: string | null = null;
-    let last: string | null = null;
-    if (timestamps.length > 0) {
-      const sorted = [...timestamps].sort(
-        (a, b) => new Date(a).getTime() - new Date(b).getTime()
-      );
-      first = sorted[0];
-      last = sorted[sorted.length - 1];
-    }
+    // Derive first/last timestamps and retain sorted array for gap calculation
+    const sortedTimestamps = [...timestamps].sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime()
+    );
+    const first = sortedTimestamps.length > 0 ? sortedTimestamps[0] : null;
+    const last = sortedTimestamps.length > 0 ? sortedTimestamps[sortedTimestamps.length - 1] : null;
 
-    return { first, last, firstUserMessage, lastAssistantMessage, breakdown };
+    return { first, last, firstUserMessage, lastAssistantMessage, breakdown, timestamps: sortedTimestamps };
   } catch {
     return null;
   }
