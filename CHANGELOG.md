@@ -5,6 +5,33 @@ All notable changes to the Claude Session Analyzer project will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-08 — Ordered Export Fields (003-scoped-export)
+
+### BREAKING CHANGE — Fixed 14-Column Export Schema
+
+The CSV (and JSON) export schema is now fixed and deterministic. The following columns have been **removed**:
+`fullPath`, `fileMtime`, `firstPrompt`, `firstUserMessage`, `lastAssistantMessage`, `created`, `modified`, `projectPath`, `isSidechain`
+
+The new fixed schema (in order): `sessionId`, `gitBranch`, `projectName`, `messageCount`, `userMessageCount`, `assistantMessageCount`, `toolMessageCount`, `duration`, `durationFormatted`, `activeDuration`, `activeDurationFormatted`, `summary`, `accurateFirstTimestamp`, `accurateLastTimestamp`
+
+**Migration**: Update downstream spreadsheet formulas and BI tool queries to use the new column names and positions.
+
+### Added
+- `EXPORT_COLUMNS` constant in `src/exporters.ts` — single source of truth for column order
+- `mapSessionToExportRow()` helper — maps any session (base or enhanced) to a 14-field ExportRow with null coalescing
+- `projectName` computed column — human-readable project label derived via `path.basename(projectPath)`
+- Breaking change notice printed to stdout before every export run
+- Schema summary line in export success output: `Schema: 14 columns (sessionId → accurateLastTimestamp)`
+- 16 unit tests in `tests/unit/exporters.test.ts` covering all three user stories
+
+### Changed
+- `exportToCsv()` — replaced dynamic Set-based column discovery with fixed `EXPORT_COLUMNS` schema
+- `exportToJson()` — now maps to `ExportRow` before serializing (consistent schema with CSV)
+- `--help` description updated to list all 14 column names
+- Version bumped to 2.0.0
+
+---
+
 ## [2.0.0] - 2026-02-16
 
 ### Added - Task 2: Smart Directory Discovery

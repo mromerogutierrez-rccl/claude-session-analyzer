@@ -25,8 +25,15 @@ const program = new Command();
 
 program
   .name('claude-logs')
-  .description('Interactive CLI to analyze and export Claude session logs')
-  .version('1.0.0')
+  .description(
+    'Interactive CLI to analyze and export Claude session logs.\n' +
+    'Exports use a fixed 14-column schema: sessionId, gitBranch, projectName,\n' +
+    'messageCount, userMessageCount, assistantMessageCount, toolMessageCount,\n' +
+    'duration, durationFormatted, activeDuration, activeDurationFormatted,\n' +
+    'summary, accurateFirstTimestamp, accurateLastTimestamp.\n' +
+    'Enhancement-only fields are null when enhanced metadata is skipped.'
+  )
+  .version('2.0.0')
   .argument(
     '[path]',
     'Project directory, sessions-index.json file, or glob pattern (default: ~/.claude/projects)',
@@ -149,7 +156,15 @@ program
       const outputPath = path.join(outputDirectory, outputFileName);
 
       // Export
-      console.log(chalk.blue('\n📝 Exporting sessions...\n'));
+      console.log(
+        chalk.cyan(
+          '\nℹ  Export schema changed: fullPath, fileMtime, firstPrompt, firstUserMessage,\n' +
+          '   lastAssistantMessage, created, modified, projectPath, and isSidechain are\n' +
+          '   no longer exported. The new fixed schema has 14 columns.\n' +
+          '   Run with --help to see the full column list.\n'
+        )
+      );
+      console.log(chalk.blue('📝 Exporting sessions...\n'));
       await exportSessions(sessionsToExport, exportFormat, outputPath);
 
       console.log(chalk.green(`✓ Successfully exported to: ${outputPath}`));
@@ -157,6 +172,7 @@ program
         chalk.gray(`  Sessions exported: ${selectedSessions.length}`)
       );
       console.log(chalk.gray(`  Format: ${exportFormat.toUpperCase()}`));
+      console.log(chalk.gray(`  Schema: 14 columns (sessionId → accurateLastTimestamp)`));
       console.log(chalk.gray(`  Enhanced metadata: ${includeEnhanced ? 'Yes' : 'No'}`));
 
       // Show gap threshold line only when explicitly passed by the user
