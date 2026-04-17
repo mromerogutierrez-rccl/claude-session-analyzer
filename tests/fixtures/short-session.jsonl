@@ -1,0 +1,4 @@
+{"timestamp":"2026-04-01T10:00:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Quick question"}]}}
+{"timestamp":"2026-04-01T10:00:30.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Quick answer"}]}}
+{"timestamp":"2026-04-01T10:01:00.000Z","type":"user","message":{"role":"user","content":[{"type":"text","text":"Thanks"}]}}
+{"timestamp":"2026-04-01T10:01:15.000Z","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"You're welcome"}]}}

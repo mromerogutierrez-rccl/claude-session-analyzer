@@ -19,6 +19,12 @@ import {
 import { exportSessions } from './exporters.js';
 import { parseStartOfDay, parseEndOfDay, isValidDateRange, formatDateRange } from './date-utils.js';
 import { validateAndRepairProjects } from './session-index-validator.js';
+import {
+  checkClaudeOnPath,
+  summarizeSessions,
+  DEFAULT_SUMMARY_PROMPT,
+  SUMMARY_TIMEOUT_MS,
+} from './session-summarizer.js';
 import type { SessionEntry, FilterOptions, ExportFormat, EnhancedSession } from './types.js';
 
 const program = new Command();
@@ -27,11 +33,11 @@ program
   .name('claude-logs')
   .description(
     'Interactive CLI to analyze and export Claude session logs.\n' +
-    'Exports use a fixed 14-column schema: sessionId, gitBranch, projectName,\n' +
+    'Exports use a fixed 15-column schema: sessionId, gitBranch, projectName,\n' +
     'messageCount, userMessageCount, assistantMessageCount, toolMessageCount,\n' +
     'duration, durationFormatted, activeDuration, activeDurationFormatted,\n' +
-    'summary, accurateFirstTimestamp, accurateLastTimestamp.\n' +
-    'Enhancement-only fields are null when enhanced metadata is skipped.'
+    'summary, accurateFirstTimestamp, accurateLastTimestamp, aiSummary.\n' +
+    'Enhancement-only fields are null/omitted when enhanced metadata is skipped.'
   )
   .version('2.0.0')
   .argument(
@@ -43,7 +49,9 @@ program
   .option('--auto-repair', 'Automatically repair indexes without prompting', false)
   .option('--no-validate', 'Skip validation (faster but may miss sessions)')
   .option('--gap-threshold <minutes>', 'Idle gap threshold in minutes for active duration calculation (default: 30)', '30')
-  .action(async (inputPath: string | undefined, options: { validate: boolean; autoRepair: boolean; gapThreshold: string }) => {
+  .option('--summary-prompt <text>', 'Custom prompt for AI session summaries')
+  .option('--max-concurrency <number>', 'Maximum number of parallel claude subprocess calls for summarization (default: 5)', '5')
+  .action(async (inputPath: string | undefined, options: { validate: boolean; autoRepair: boolean; gapThreshold: string; summaryPrompt?: string; maxConcurrency: string }) => {
     // Validate --gap-threshold before any async I/O
     // String comparison catches decimals: parseInt('1.5') === 1 but String(1) !== '1.5'
     const parsedThreshold = parseInt(options.gapThreshold, 10);
@@ -58,6 +66,19 @@ program
       process.exit(1);
     }
     const gapThresholdMs = parsedThreshold * 60 * 1_000;
+
+    // Validate --max-concurrency before any async I/O
+    const parsedConcurrency = parseInt(options.maxConcurrency, 10);
+    if (
+      !Number.isInteger(parsedConcurrency) ||
+      parsedConcurrency <= 0 ||
+      String(parsedConcurrency) !== options.maxConcurrency.trim()
+    ) {
+      console.error(
+        chalk.red(`Error: --max-concurrency must be a positive integer. Received: "${options.maxConcurrency}"`)
+      );
+      process.exit(1);
+    }
 
     try {
       console.log(chalk.blue('🔍 Discovering session files...\n'));
@@ -125,10 +146,73 @@ program
       });
 
       // Prepare sessions for export
-      let sessionsToExport;
+      let sessionsToExport: SessionEntry[] | EnhancedSession[];
+      let aiSummaryStatus: 'none' | 'declined' | 'no_claude' | { generated: number; skipped: number } = 'none';
+
       if (includeEnhanced) {
         console.log(chalk.blue('\n⏱️  Calculating accurate durations from .jsonl files...\n'));
-        sessionsToExport = await enhanceSessions(selectedSessions, gapThresholdMs);
+        const enhancementResults = await enhanceSessions(selectedSessions, gapThresholdMs);
+        const enhancedSessions: EnhancedSession[] = enhancementResults.map(r => r.session);
+        sessionsToExport = enhancedSessions;
+
+        // Summarization block
+        const generateSummaries = await confirm({
+          message: 'Generate AI summaries for selected sessions using claude CLI?',
+          default: true,
+        });
+
+        if (!generateSummaries) {
+          aiSummaryStatus = 'declined';
+        } else {
+          const claudeAvailable = await checkClaudeOnPath();
+          if (!claudeAvailable) {
+            console.log(chalk.yellow('\n  ⚠  claude CLI not found on PATH. Skipping AI summaries.\n'));
+            aiSummaryStatus = 'no_claude';
+          } else {
+            console.log(chalk.blue('\n🤖 Generating AI summaries...\n'));
+            const pairs = enhancementResults.map(r => ({ session: r.session, rawData: r.rawData }));
+            let generated = 0;
+            let skipped = 0;
+
+            const results = await summarizeSessions(
+              pairs,
+              options.summaryPrompt ?? DEFAULT_SUMMARY_PROMPT,
+              parsedConcurrency,
+              SUMMARY_TIMEOUT_MS,
+              (result, session) => {
+                const date = format(new Date(session.created), 'yyyy-MM-dd HH:mm');
+                const preview = session.summary.slice(0, 50);
+                if (result.status === 'generated') {
+                  console.log(chalk.green(`  ✓ [${date}] ${preview} (summary generated)`));
+                } else if (result.status === 'skipped_low_count') {
+                  console.log(chalk.yellow(`  ⚠ [${date}] ${preview} (skipped — fewer than 3 user messages)`));
+                } else if (result.status === 'failed_timeout') {
+                  console.log(chalk.yellow(`  ⚠ [${date}] ${preview} (failed — timed out after 60s)`));
+                } else if (result.status === 'failed_exit') {
+                  console.log(chalk.yellow(`  ⚠ [${date}] ${preview} (failed — code ${result.exitCode})`));
+                }
+              }
+            );
+
+            // Merge aiSummary back onto sessionsToExport (index-aligned)
+            for (let i = 0; i < results.length; i++) {
+              if (results[i].status === 'generated' && results[i].aiSummary) {
+                enhancedSessions[i].aiSummary = results[i].aiSummary;
+                generated++;
+              } else {
+                skipped++;
+              }
+            }
+
+            aiSummaryStatus = { generated, skipped };
+
+            if (skipped > 0) {
+              console.log(chalk.gray(`\n  Generated ${generated} of ${results.length} summaries (${skipped} skipped)\n`));
+            } else {
+              console.log(chalk.gray(`\n  Generated ${generated} of ${results.length} summaries\n`));
+            }
+          }
+        }
       } else {
         sessionsToExport = selectedSessions;
       }
@@ -160,7 +244,7 @@ program
         chalk.cyan(
           '\nℹ  Export schema changed: fullPath, fileMtime, firstPrompt, firstUserMessage,\n' +
           '   lastAssistantMessage, created, modified, projectPath, and isSidechain are\n' +
-          '   no longer exported. The new fixed schema has 14 columns.\n' +
+          '   no longer exported. The new fixed schema has 15 columns.\n' +
           '   Run with --help to see the full column list.\n'
         )
       );
@@ -172,8 +256,19 @@ program
         chalk.gray(`  Sessions exported: ${selectedSessions.length}`)
       );
       console.log(chalk.gray(`  Format: ${exportFormat.toUpperCase()}`));
-      console.log(chalk.gray(`  Schema: 14 columns (sessionId → accurateLastTimestamp)`));
+      console.log(chalk.gray(`  Schema: 15 columns (sessionId → aiSummary)`));
       console.log(chalk.gray(`  Enhanced metadata: ${includeEnhanced ? 'Yes' : 'No'}`));
+
+      // AI summary status line (only when enhanced)
+      if (includeEnhanced) {
+        if (aiSummaryStatus === 'declined') {
+          console.log(chalk.gray(`  AI summaries: No`));
+        } else if (aiSummaryStatus === 'no_claude') {
+          console.log(chalk.gray(`  AI summaries: Skipped (claude not found)`));
+        } else if (typeof aiSummaryStatus === 'object') {
+          console.log(chalk.gray(`  AI summaries: ${aiSummaryStatus.generated} generated, ${aiSummaryStatus.skipped} skipped`));
+        }
+      }
 
       // Show gap threshold line only when explicitly passed by the user
       if (includeEnhanced && options.gapThreshold !== '30') {
@@ -181,7 +276,7 @@ program
       }
 
       // Show note when at least one session had idle gaps removed
-      if (includeEnhanced) {
+      if (includeEnhanced && Array.isArray(sessionsToExport)) {
         const enhancedExported = sessionsToExport as EnhancedSession[];
         const sessionsWithGaps = enhancedExported.filter(
           s =>

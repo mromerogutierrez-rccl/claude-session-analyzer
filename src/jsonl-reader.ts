@@ -98,6 +98,7 @@ export interface AllEnhancedData {
   lastAssistantMessage: string | null;
   breakdown: MessageCountBreakdown;
   timestamps: string[]; // Full sorted list of all message timestamps. Empty array when none found. Never null.
+  conversationMessages: Array<{ role: 'user' | 'assistant'; text: string }>; // Ordered text-bearing messages (tool-use stripped). Empty array when none found.
 }
 
 /**
@@ -134,6 +135,7 @@ export async function readAllEnhancedData(filePath: string): Promise<AllEnhanced
     let firstUserMessage: string | null = null;
     // Track last assistant message by overwriting on each qualifying line (forward pass)
     let lastAssistantMessage: string | null = null;
+    const conversationMessages: Array<{ role: 'user' | 'assistant'; text: string }> = [];
 
     const breakdown: MessageCountBreakdown = {
       userMessageCount: 0,
@@ -180,7 +182,9 @@ export async function readAllEnhancedData(filePath: string): Promise<AllEnhanced
             .filter(item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text))
             .map(item => item.text!.trim());
           if (textParts.length > 0) {
-            lastAssistantMessage = maskSensitiveInfo(textParts.join('\n\n'));
+            const maskedText = maskSensitiveInfo(textParts.join('\n\n'));
+            lastAssistantMessage = maskedText;
+            conversationMessages.push({ role: 'assistant', text: maskedText });
           }
         } else {
           // Assistant with only tool_use/tool_result — no text
@@ -191,14 +195,16 @@ export async function readAllEnhancedData(filePath: string): Promise<AllEnhanced
           // Genuine human-authored message
           breakdown.userMessageCount++;
 
-          // Capture first user message
-          if (firstUserMessage === null) {
-            const textParts = contentItems
-              .filter(item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text))
-              .map(item => item.text!.trim());
-            if (textParts.length > 0) {
-              firstUserMessage = maskSensitiveInfo(textParts.join('\n\n'));
+          // Capture first user message and accumulate conversation
+          const textParts = contentItems
+            .filter(item => item.type === 'text' && item.text && item.text.trim().length > 0 && !isIdeArtifact(item.text))
+            .map(item => item.text!.trim());
+          if (textParts.length > 0) {
+            const maskedText = maskSensitiveInfo(textParts.join('\n\n'));
+            if (firstUserMessage === null) {
+              firstUserMessage = maskedText;
             }
+            conversationMessages.push({ role: 'user', text: maskedText });
           }
         } else {
           // User entry with only tool_result or IDE artifacts — not human-authored
@@ -215,7 +221,7 @@ export async function readAllEnhancedData(filePath: string): Promise<AllEnhanced
     const first = sortedTimestamps.length > 0 ? sortedTimestamps[0] : null;
     const last = sortedTimestamps.length > 0 ? sortedTimestamps[sortedTimestamps.length - 1] : null;
 
-    return { first, last, firstUserMessage, lastAssistantMessage, breakdown, timestamps: sortedTimestamps };
+    return { first, last, firstUserMessage, lastAssistantMessage, breakdown, timestamps: sortedTimestamps, conversationMessages };
   } catch {
     return null;
   }

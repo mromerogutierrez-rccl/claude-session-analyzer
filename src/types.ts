@@ -38,6 +38,7 @@ export interface EnhancedSession extends SessionEntry {
   userMessageCount?: number; // Count of genuine human-authored messages (absent when enhancement skipped)
   assistantMessageCount?: number; // Count of assistant text-response messages (absent when enhancement skipped)
   toolMessageCount?: number; // Count of tool/internal messages — tool_use, tool_result, MCP (absent when enhancement skipped)
+  aiSummary?: string; // AI-generated summary via claude -p subprocess (absent if skipped/declined/failed)
 }
 
 /**

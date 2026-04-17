@@ -1,6 +1,16 @@
 import { formatDistanceStrict, differenceInMilliseconds } from 'date-fns';
 import type { SessionEntry, EnhancedSession, FilterOptions } from './types.js';
 import { readAllEnhancedData } from './jsonl-reader.js';
+import type { AllEnhancedData } from './jsonl-reader.js';
+
+/**
+ * Result of enhanceSession — pairs the enhanced session with its raw .jsonl data
+ * so summarization can reuse already-read data without a second file read.
+ */
+export interface EnhancementResult {
+  session: EnhancedSession;
+  rawData: AllEnhancedData | null;
+}
 
 /**
  * Default idle gap threshold: 30 minutes in milliseconds.
@@ -76,11 +86,12 @@ export function calculateDuration(created: string, modified: string): {
 /**
  * Enhance session with calculated metadata using actual .jsonl file.
  * Performs a single file read to extract all enhanced metadata simultaneously.
+ * Returns EnhancementResult pairing the enhanced session with raw data for summarization reuse.
  */
 export async function enhanceSession(
   session: SessionEntry,
   gapThresholdMs: number = DEFAULT_GAP_THRESHOLD_MS
-): Promise<EnhancedSession> {
+): Promise<EnhancementResult> {
   // Single file read — extracts all enhanced metadata in one pass
   const data = await readAllEnhancedData(session.fullPath);
 
@@ -138,7 +149,7 @@ export async function enhanceSession(
     enhanced.lastAssistantMessage = lastAssistantMessage;
   }
 
-  return enhanced;
+  return { session: enhanced, rawData: data };
 }
 
 /**
@@ -147,7 +158,7 @@ export async function enhanceSession(
 export async function enhanceSessions(
   sessions: SessionEntry[],
   gapThresholdMs: number = DEFAULT_GAP_THRESHOLD_MS
-): Promise<EnhancedSession[]> {
+): Promise<EnhancementResult[]> {
   return Promise.all(sessions.map(session => enhanceSession(session, gapThresholdMs)));
 }
 

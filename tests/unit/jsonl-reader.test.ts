@@ -153,6 +153,59 @@ describe('readAllEnhancedData - timestamps array (TR1-TR5)', () => {
   });
 });
 
+describe('readAllEnhancedData - conversationMessages (TR6-TR10)', () => {
+  it('TR6: conversationMessages field exists on returned AllEnhancedData', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect('conversationMessages' in result!).toBe(true);
+  });
+
+  it('TR7: pure-conversation fixture returns 4 conversationMessages entries (2 user + 2 assistant), alternating roles, in order', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect(result!.conversationMessages).toHaveLength(4);
+    expect(result!.conversationMessages[0].role).toBe('user');
+    expect(result!.conversationMessages[1].role).toBe('assistant');
+    expect(result!.conversationMessages[2].role).toBe('user');
+    expect(result!.conversationMessages[3].role).toBe('assistant');
+    expect(result!.conversationMessages[0].text).toBe('What is TypeScript?');
+    expect(result!.conversationMessages[1].text).toBe('TypeScript is a typed superset of JavaScript that compiles to plain JavaScript.');
+    expect(result!.conversationMessages[2].text).toBe('How do I compile a TypeScript file?');
+    expect(result!.conversationMessages[3].text).toBe('Use the tsc command: tsc yourfile.ts');
+  });
+
+  it('TR8: tool-heavy fixture returns only text-bearing entries (tool-only excluded)', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'tool-heavy.jsonl'));
+
+    expect(result).not.toBeNull();
+    // tool-heavy has: user text, assistant tool-only, user tool-only, assistant text, user tool-only, assistant tool-only
+    // Only user text (line 1) and assistant text (line 4) have text blocks → 2 entries
+    expect(result!.conversationMessages).toHaveLength(2);
+    expect(result!.conversationMessages[0].role).toBe('user');
+    expect(result!.conversationMessages[1].role).toBe('assistant');
+  });
+
+  it('TR9: empty .jsonl file returns empty conversationMessages array', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'empty.jsonl'));
+
+    expect(result).not.toBeNull();
+    expect(Array.isArray(result!.conversationMessages)).toBe(true);
+    expect(result!.conversationMessages).toHaveLength(0);
+  });
+
+  it('TR10: message ordering in conversationMessages matches .jsonl line order', async () => {
+    const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));
+
+    expect(result).not.toBeNull();
+    // First entry should be the first user message
+    expect(result!.conversationMessages[0].text).toBe('What is TypeScript?');
+    // Last entry should be the last assistant message
+    expect(result!.conversationMessages[3].text).toBe('Use the tsc command: tsc yourfile.ts');
+  });
+});
+
 describe('readAllEnhancedData - timestamps and messages', () => {
   it('returns first and last timestamps from pure conversation', async () => {
     const result = await readAllEnhancedData(resolve(FIXTURES, 'pure-conversation.jsonl'));

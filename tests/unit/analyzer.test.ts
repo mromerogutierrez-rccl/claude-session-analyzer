@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, sortSessionsByDate, enhanceSession, calculateActiveDuration, DEFAULT_GAP_THRESHOLD_MS } from '../../src/analyzer.js';
+import { filterSessions, sortSessionsByDate, enhanceSession, enhanceSessions, calculateActiveDuration, DEFAULT_GAP_THRESHOLD_MS } from '../../src/analyzer.js';
+import type { EnhancementResult } from '../../src/analyzer.js';
 import type { SessionEntry, FilterOptions } from '../../src/types.js';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -373,7 +374,7 @@ describe('enhanceSession - message count breakdown', () => {
 
   it('TA1: breakdown fields are populated when readAllEnhancedData succeeds', async () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     expect(enhanced.userMessageCount).toBe(2);
     expect(enhanced.assistantMessageCount).toBe(2);
@@ -382,7 +383,7 @@ describe('enhanceSession - message count breakdown', () => {
 
   it('TA2: breakdown fields are absent (not null/0) when file is unreadable', async () => {
     const session = createSessionWithPath('/nonexistent/path/session.jsonl');
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     // Fields must be completely absent — not null, not 0
     expect('userMessageCount' in enhanced).toBe(false);
@@ -392,7 +393,7 @@ describe('enhanceSession - message count breakdown', () => {
 
   it('TA3: breakdown fields appear before duration in property order (CSV column contract)', async () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     const keys = Object.keys(enhanced);
     const userIdx = keys.indexOf('userMessageCount');
@@ -516,7 +517,7 @@ describe('enhanceSession - active duration (TA4-TA8)', () => {
 
   it('TA4: readable file → activeDuration present and is a number', async () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     expect('activeDuration' in enhanced).toBe(true);
     expect(typeof enhanced.activeDuration).toBe('number');
@@ -526,7 +527,7 @@ describe('enhanceSession - active duration (TA4-TA8)', () => {
 
   it('TA5: unreadable file → activeDuration absent from returned object', async () => {
     const session = createSessionWithPath('/nonexistent/path/session.jsonl');
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     expect('activeDuration' in enhanced).toBe(false);
     expect('activeDurationFormatted' in enhanced).toBe(false);
@@ -534,7 +535,7 @@ describe('enhanceSession - active duration (TA4-TA8)', () => {
 
   it('TA6: empty file (0 timestamps) → activeDuration is 0 and activeDurationFormatted is "0 seconds"', async () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'empty.jsonl'));
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     expect(enhanced.activeDuration).toBe(0);
     expect(enhanced.activeDurationFormatted).toBe('0 seconds');
@@ -542,7 +543,7 @@ describe('enhanceSession - active duration (TA4-TA8)', () => {
 
   it('TA7: activeDuration appears after durationFormatted and before accurateFirstTimestamp in CSV column order', async () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
-    const enhanced = await enhanceSession(session);
+    const { session: enhanced } = await enhanceSession(session);
 
     const keys = Object.keys(enhanced);
     const durationFormattedIdx = keys.indexOf('durationFormatted');
@@ -557,13 +558,63 @@ describe('enhanceSession - active duration (TA4-TA8)', () => {
     const session = createSessionWithPath(resolve(FIXTURES, 'gapped-session.jsonl'));
 
     // With 30-min threshold: overnight gap excluded → activeMs = 900,000ms
-    const enhanced30m = await enhanceSession(session, DEFAULT_GAP_THRESHOLD_MS);
+    const { session: enhanced30m } = await enhanceSession(session, DEFAULT_GAP_THRESHOLD_MS);
     expect(enhanced30m.activeDuration).toBe(900_000);
 
     // With huge threshold: no gaps excluded → activeMs = full span
-    const enhancedHuge = await enhanceSession(session, 999_999_999);
+    const { session: enhancedHuge } = await enhanceSession(session, 999_999_999);
     // 5min + 23h55min + 10min = 87,000,000ms
     expect(enhancedHuge.activeDuration).toBe(87_000_000);
+  });
+
+  it('TA9: enhanceSession() return type has shape { session: EnhancedSession, rawData: AllEnhancedData | null }', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const result: EnhancementResult = await enhanceSession(session);
+
+    expect('session' in result).toBe(true);
+    expect('rawData' in result).toBe(true);
+  });
+
+  it('TA10: when .jsonl is readable, rawData is not null', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const { rawData } = await enhanceSession(session);
+
+    expect(rawData).not.toBeNull();
+  });
+
+  it('TA11: when .jsonl is unreadable, rawData is null', async () => {
+    const session = createSessionWithPath('/nonexistent/path/session.jsonl');
+    const { rawData } = await enhanceSession(session);
+
+    expect(rawData).toBeNull();
+  });
+
+  it('TA12: .session has all existing enhanced fields (sessionId, summary, timestamps, etc.)', async () => {
+    const session = createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl'));
+    const { session: enhanced } = await enhanceSession(session);
+
+    expect(enhanced.sessionId).toBe('test-session');
+    expect(typeof enhanced.duration).toBe('number');
+    expect(typeof enhanced.durationFormatted).toBe('string');
+    expect(enhanced.accurateFirstTimestamp).toBeDefined();
+    expect(enhanced.accurateLastTimestamp).toBeDefined();
+  });
+
+  it('TA13: enhanceSessions() returns array of EnhancementResult (verify structure)', async () => {
+    const sessions = [
+      createSessionWithPath(resolve(FIXTURES, 'pure-conversation.jsonl')),
+      createSessionWithPath('/nonexistent/path/session.jsonl'),
+    ];
+    const results = await enhanceSessions(sessions);
+
+    expect(results).toHaveLength(2);
+    expect('session' in results[0]).toBe(true);
+    expect('rawData' in results[0]).toBe(true);
+    expect('session' in results[1]).toBe(true);
+    expect('rawData' in results[1]).toBe(true);
+    // First is readable, second is not
+    expect(results[0].rawData).not.toBeNull();
+    expect(results[1].rawData).toBeNull();
   });
 });
 

@@ -19,9 +19,10 @@ export const EXPORT_COLUMNS = [
   'summary',
   'accurateFirstTimestamp',
   'accurateLastTimestamp',
+  'aiSummary',
 ] as const;
 
-// Internal type for 14-field export rows
+// Internal type for 15-field export rows
 type ExportRow = {
   sessionId: string;
   gitBranch: string;
@@ -37,6 +38,7 @@ type ExportRow = {
   summary: string;
   accurateFirstTimestamp: string | null;
   accurateLastTimestamp: string | null;
+  aiSummary: string | null;
 };
 
 function mapSessionToExportRow(session: SessionEntry | EnhancedSession): ExportRow {
@@ -56,6 +58,7 @@ function mapSessionToExportRow(session: SessionEntry | EnhancedSession): ExportR
     summary: session.summary,
     accurateFirstTimestamp: enhanced.accurateFirstTimestamp ?? null,
     accurateLastTimestamp: enhanced.accurateLastTimestamp ?? null,
+    aiSummary: enhanced.aiSummary ?? null,
   };
 }
 
@@ -66,7 +69,15 @@ export async function exportToJson(
   sessions: SessionEntry[] | EnhancedSession[],
   outputPath: string
 ): Promise<void> {
-  const rows = sessions.map(s => mapSessionToExportRow(s));
+  const rows = sessions.map(s => {
+    const row = mapSessionToExportRow(s);
+    // Omit aiSummary key entirely when null (spec: JSON null-key filtering)
+    if (row.aiSummary === null) {
+      const { aiSummary: _, ...rest } = row;
+      return rest;
+    }
+    return row;
+  });
   const jsonContent = JSON.stringify(rows, null, 2);
   await writeFile(outputPath, jsonContent, 'utf-8');
 }
